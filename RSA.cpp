@@ -2,6 +2,8 @@
 #include <fstream>
 #include <string>
 #include <random>
+#include <tuple>
+#include <chrono>
 #include "lib/InfInt.h"
 
 
@@ -24,7 +26,20 @@ InfInt binpower(InfInt base, InfInt e, InfInt mod) {
 bool millerRabin(InfInt n, int iterations) {
     if (n < 2) return false;
     if (n == 2 || n == 3) return true;
-    if (n % 2 == 0) return false;
+    if (n % 2 == 0 ||
+        n % 3 == 0||
+        n % 5 == 0||
+        n % 7 == 0||
+        n % 11 == 0||
+        n % 13 == 0||
+        n % 17 == 0||
+        n % 19 == 0||
+        n % 23 == 0||
+        n % 29 == 0||
+        n % 31 == 0||
+        n % 37 == 0||
+        n % 41 == 0||
+        n % 53 == 0) return false;
 
     // Achar d tal que n-1 = 2^s * d
     InfInt d = n - 1;
@@ -57,8 +72,9 @@ bool millerRabin(InfInt n, int iterations) {
 
 // Função para gerar um número aleatório de 1, 0 ou bits específicos
 InfInt generateRandomCandidate(int bits) {
-    std::random_device rd;  // Fonte de entropia do hardware
-    std::mt19937 gen(rd()); // Gerador Mersenne Twister
+    //static std::random_device rd;  // Fonte de entropia do hardware
+    unsigned seed = std::chrono::steady_clock::now().time_since_epoch().count();
+    static std::mt19937 gen(seed); // Gerador Mersenne Twister
     std::uniform_int_distribution<int> dist(0, 1);
 
     std::string binaryString = "1"; // Força o MSB a ser 1
@@ -81,6 +97,33 @@ InfInt generateRandomCandidate(int bits) {
     return res;
 }
 
+//Algoritmo de Euclides Extendido
+InfInt gcd(InfInt a, InfInt b, InfInt& x, InfInt& y){
+    x = 1;
+    y = 0;
+    InfInt x1 = 0, y1 = 1, a1 = a, b1 = b;
+    while (b1 != 0)
+    {
+        InfInt q = a1 / b1;
+        std::tie(x,x1) = std::make_tuple(x1, x - q * x1);
+        std::tie(y,y1) = std::make_tuple(y1, y - q * y1);
+        std::tie(a1,b1) = std::make_tuple(b1, a1 - q * b1);
+    }
+    
+}
+
+InfInt findModInv(InfInt a,InfInt m){
+    InfInt x,y;
+    InfInt gcm = gcd(a, m, x, y);
+    if(gcm != 1){
+        return 0;
+    }
+    else{
+        x = (x % m + m) % m;
+        return x;
+    }
+}
+
 
 int main(){
 
@@ -95,6 +138,7 @@ int main(){
         std::cout << "." << std::flush;
     }
 
+    std::cout << " " << std::endl;
     std::cout << "p encontrado:" << std::endl;
     std::cout << p << std::endl;
 
@@ -102,15 +146,18 @@ int main(){
     InfInt q = generateRandomCandidate(bitSize);
 
     // Loop até encontrar um primo
-    while (!millerRabin(q, 3) || p == q) {
+    while (!millerRabin(q, 3) || (q == p)) {
         q += 2; 
         std::cout << "." << std::flush;
     }
 
+    std::cout << " " << std::endl;
     std::cout << "q encontrado:" << std::endl;
     std::cout << q << std::endl;
 
     InfInt n = p * q;
+
+    // Totiente de Euler
     InfInt z = (p - 1) * (q - 1);
 
     return 0;

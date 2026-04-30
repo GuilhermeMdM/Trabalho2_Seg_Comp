@@ -4,6 +4,7 @@
 #include <random>
 #include <tuple>
 #include <chrono>
+#include <vector>
 #include "lib/InfInt.h"
 
 
@@ -92,7 +93,7 @@ InfInt generateRandomCandidate(int bits) {
     return res;
 }
 
-//Algoritmo de Euclides Extendido
+//Algoritmo de Euclides Estendido
 InfInt gcd(InfInt a, InfInt b, InfInt& x, InfInt& y){
     x = 1;
     y = 0;
@@ -104,7 +105,7 @@ InfInt gcd(InfInt a, InfInt b, InfInt& x, InfInt& y){
         std::tie(y,y1) = std::make_tuple(y1, y - q * y1);
         std::tie(a1,b1) = std::make_tuple(b1, a1 - q * b1);
     }
-    
+    return a1;
 }
 
 InfInt findModInv(InfInt a,InfInt m){
@@ -119,6 +120,25 @@ InfInt findModInv(InfInt a,InfInt m){
     }
 }
 
+InfInt bytesToBigInt(const std::vector<unsigned char>& data) {
+    InfInt result = 0;
+    for (unsigned char b : data) {
+        result *=256;
+        result += b;
+    }
+    return result;
+}
+
+std::vector<unsigned char> bigIntToBytes(InfInt num, size_t k) {
+    std::vector<unsigned char> data(k);
+
+    for (int i = k - 1; i >= 0; i--) {
+        data[i] = (num % 256).toInt();
+        num /= 256;
+    }
+
+    return data;
+}
 
 int main(){
 
@@ -155,5 +175,38 @@ int main(){
     // Totiente de Euler
     InfInt z = (p - 1) * (q - 1);
 
+    //escolhendo e
+    InfInt e = 65537;
+
+    InfInt x,y;
+    while(gcd(e,z,x,y) != 1){
+        e += 2;
+    }
+    std::cout << "Valor de e: " << e << std::endl;
+
+    //encontrando d
+    InfInt d = findModInv(e,z);
+    std::cout << "Valor de d: " << d << std::endl;
+
+
+    //criptografando
+    std::vector<unsigned char> message1 = {'o','l','a'};
+    InfInt messageB1 = bytesToBigInt(message1);
+
+    InfInt cypher = binpower(messageB1,e,n);
+
+    std::cout << "Texto cifrado: " << cypher << std::endl;
+
+    //descriptografando
+    InfInt messageB2 = binpower(cypher,d,n);
+
+    std::vector<unsigned char> message2 = bigIntToBytes(messageB2,message1.size());
+
+    std::cout << "Texto recuperado: " << std::endl;
+
+    for(auto c: message2){
+        std::cout<<c<<std::endl;
+    }
+ 
     return 0;
 }

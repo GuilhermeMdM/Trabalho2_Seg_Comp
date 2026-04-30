@@ -70,30 +70,25 @@ bool millerRabin(InfInt n, int iterations) {
 }
 
 
-// Função para gerar um número aleatório de 1, 0 ou bits específicos
+
 InfInt generateRandomCandidate(int bits) {
     //static std::random_device rd;  // Fonte de entropia do hardware
-    unsigned seed = std::chrono::steady_clock::now().time_since_epoch().count();
+    unsigned seed = std::chrono::steady_clock::now().time_since_epoch().count(); //seed do relogio do sistema
     static std::mt19937 gen(seed); // Gerador Mersenne Twister
     std::uniform_int_distribution<int> dist(0, 1);
 
-    std::string binaryString = "1"; // Força o MSB a ser 1
 
-    for (int i = 0; i < bits - 2; ++i) {
-        binaryString += std::to_string(dist(gen));
-    }
+    InfInt res = 1; //bit mais significativo eh 1
 
-    binaryString += "1"; // Força o LSB a ser 1 (ímpar)
-
-    // A InfInt não converte binário direto por padrão
-    InfInt res = 0;
-    InfInt base = 1;
-    for (int i = binaryString.length() - 1; i >= 0; i--) {
-        if (binaryString[i] == '1') {
-            res += base;
+    for(int i = 0; i < bits - 1; i++){
+        res *= 2; //bit shift
+        if(i < bits-2){ //nao altera o ultimo bit aqui
+            res += dist(gen);
         }
-        base *= 2;
     }
+
+    res += 1; //para ser impar
+
     return res;
 }
 

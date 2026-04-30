@@ -1,172 +1,73 @@
 #include <iostream>
-#include <fstream>
-#include <string>
-#include <random>
-#include <tuple>
-#include <chrono>
 #include <vector>
-#include "lib/InfInt.h"
+#include <string>
+#include <fstream>
+#include <iterator>
+#include <future>
+#include <thread>
+#include <chrono>
+#include "keygen.h"
+#include "oaep.h"
 
-
-
-InfInt binpower(InfInt base, InfInt e, InfInt mod) {
-    InfInt result = 1;
-    base %= mod;
-    while (e > 0) {
-        if (e % 2 == 1)
-            result = (result * base) % mod;
-        base = (base * base) % mod;
-        e /= 2;
-    }
-    return result;
-}
-
-
-
-
-bool millerRabin(InfInt n, int iterations) {
-    if (n < 2) return false;
-    if (n == 2 || n == 3) return true;
-    if (n % 2 == 0 ||
-        n % 3 == 0||
-        n % 5 == 0||
-        n % 7 == 0||
-        n % 11 == 0||
-        n % 13 == 0||
-        n % 17 == 0||
-        n % 19 == 0||
-        n % 23 == 0||
-        n % 29 == 0||
-        n % 31 == 0||
-        n % 37 == 0||
-        n % 41 == 0||
-        n % 53 == 0) return false;
-
-    // Achar d tal que n-1 = 2^s * d
-    InfInt d = n - 1;
-    int s = 0;
-    while (d % 2 == 0) {
-        d /= 2;
-        s++;
-    }
-
-    for (int i = 0; i < iterations; i++) {
-        
-        InfInt a = 2 + (i * 3); 
-        InfInt x = binpower(a, d, n);
-
-        if (x == 1 || x == n - 1) continue;
-
-        bool composite = true;
-        for (int r = 1; r < s; r++) {
-            x = (x * x) % n;
-            if (x == n - 1) {
-                composite = false;
-                break;
-            }
-        }
-        if (composite) return false;
-    }
-    return true;
-}
-
-
-
-InfInt generateRandomCandidate(int bits) {
-    //static std::random_device rd;  // Fonte de entropia do hardware
-    unsigned seed = std::chrono::steady_clock::now().time_since_epoch().count(); //seed do relogio do sistema
-    static std::mt19937 gen(seed); // Gerador Mersenne Twister
-    std::uniform_int_distribution<int> dist(0, 1);
-
-
-    InfInt res = 1; //bit mais significativo eh 1
-
-    for(int i = 0; i < bits - 1; i++){
-        res *= 2; //bit shift
-        if(i < bits-2){ //nao altera o ultimo bit aqui
-            res += dist(gen);
-        }
-    }
-
-    res += 1; //para ser impar
-
-    return res;
-}
-
-//Algoritmo de Euclides Estendido
-InfInt gcd(InfInt a, InfInt b, InfInt& x, InfInt& y){
-    x = 1;
-    y = 0;
-    InfInt x1 = 0, y1 = 1, a1 = a, b1 = b;
-    while (b1 != 0)
+size_t modulusByteLength(InfInt n)
+{
+    size_t len = 0;
+    while (n > 0)
     {
-        InfInt q = a1 / b1;
-        std::tie(x,x1) = std::make_tuple(x1, x - q * x1);
-        std::tie(y,y1) = std::make_tuple(y1, y - q * y1);
-        std::tie(a1,b1) = std::make_tuple(b1, a1 - q * b1);
+        n /= 256;
+        len++;
     }
-    return a1;
+    return (len == 0) ? 1 : len;
 }
 
-InfInt findModInv(InfInt a,InfInt m){
-    InfInt x,y;
-    InfInt gcm = gcd(a, m, x, y);
-    if(gcm != 1){
-        return 0;
-    }
-    else{
-        x = (x % m + m) % m;
-        return x;
-    }
-}
-
-InfInt bytesToBigInt(const std::vector<unsigned char>& data) {
-    InfInt result = 0;
-    for (unsigned char b : data) {
-        result *=256;
-        result += b;
-    }
-    return result;
-}
-
-std::vector<unsigned char> bigIntToBytes(InfInt num, size_t k) {
-    std::vector<unsigned char> data(k);
-
-    for (int i = k - 1; i >= 0; i--) {
-        data[i] = (num % 256).toInt();
-        num /= 256;
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        std::cout << "Uso: " << argv[0] << " <arquivo_mensagem>" << std::endl;
+        return 1;
     }
 
-    return data;
-}
+    std::ifstream in(argv[1], std::ios::binary);
+    if (!in)
+    {
+        std::cout << "Falha ao abrir arquivo de mensagem: " << argv[1] << std::endl;
+        return 1;
+    }
 
-int main(){
+    std::vector<unsigned char> message1(
+        (std::istreambuf_iterator<char>(in)),
+        std::istreambuf_iterator<char>());
+    if (message1.empty())
+    {
+        std::cout << "Arquivo de mensagem vazio." << std::endl;
+        return 1;
+    }
 
     int bitSize = 1024;
-    std::cout << "Gerando p " << std::flush;
+    int primalityIterations = 3;
+    std::cout << "Gerando p e q em paralelo..." << std::endl;
 
-    InfInt p = generateRandomCandidate(bitSize);
+    auto pFuture = std::async(std::launch::async, generatePrime, bitSize, primalityIterations);
+    auto qFuture = std::async(std::launch::async, generatePrime, bitSize, primalityIterations);
 
-    // Loop até encontrar um primo
-    while (!millerRabin(p, 3)) {
-        p += 2; // Tenta o próximo número ímpar
+    while (pFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready ||
+           qFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    {
         std::cout << "." << std::flush;
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
+    std::cout << " " << std::endl;
+
+    InfInt p = pFuture.get();
+    InfInt q = qFuture.get();
+    while (q == p)
+    {
+        q = generatePrime(bitSize, primalityIterations);
     }
 
-    std::cout << " " << std::endl;
     std::cout << "p encontrado:" << std::endl;
     std::cout << p << std::endl;
-
-    std::cout << "Gerando q " << std::flush;
-    InfInt q = generateRandomCandidate(bitSize);
-
-    // Loop até encontrar um primo
-    while (!millerRabin(q, 3) || (q == p)) {
-        q += 2; 
-        std::cout << "." << std::flush;
-    }
-
-    std::cout << " " << std::endl;
     std::cout << "q encontrado:" << std::endl;
     std::cout << q << std::endl;
 
@@ -175,38 +76,64 @@ int main(){
     // Totiente de Euler
     InfInt z = (p - 1) * (q - 1);
 
-    //escolhendo e
+    // escolhendo e
     InfInt e = 65537;
 
-    InfInt x,y;
-    while(gcd(e,z,x,y) != 1){
+    InfInt x, y;
+    while (gcd(e, z, x, y) != 1)
+    {
         e += 2;
     }
     std::cout << "Valor de e: " << e << std::endl;
 
-    //encontrando d
-    InfInt d = findModInv(e,z);
+    // encontrando d
+    InfInt d = findModInv(e, z);
     std::cout << "Valor de d: " << d << std::endl;
 
+    // criptografando com OAEP
+    const size_t k = modulusByteLength(n);
+    const size_t maxLen = oaepMaxMessageLen(k);
+    if (message1.size() > maxLen)
+    {
+        std::cout << "Mensagem maior que o limite OAEP para esse modulo." << std::endl;
+        return 1;
+    }
 
-    //criptografando
-    std::vector<unsigned char> message1 = {'o','l','a'};
-    InfInt messageB1 = bytesToBigInt(message1);
+    std::vector<unsigned char> encodedMessage;
+    if (!oaepEncode(message1, k, encodedMessage))
+    {
+        std::cout << "Falha no OAEP encode." << std::endl;
+        return 1;
+    }
 
-    InfInt cypher = binpower(messageB1,e,n);
+    InfInt messageB1 = bytesToBigInt(encodedMessage);
+    if (messageB1 >= n)
+    {
+        std::cout << "Erro: bloco OAEP >= modulo RSA." << std::endl;
+        return 1;
+    }
+
+    InfInt cypher = binpower(messageB1, e, n);
 
     std::cout << "Texto cifrado: " << cypher << std::endl;
 
-    //descriptografando
-    InfInt messageB2 = binpower(cypher,d,n);
-
-    std::vector<unsigned char> message2 = bigIntToBytes(messageB2,message1.size());
-
-    std::cout << "Texto recuperado: " << std::endl;
-
-    for(auto c: message2){
-        std::cout<<c<<std::endl;
+    // descriptografando com OAEP
+    InfInt messageB2 = binpower(cypher, d, n);
+    std::vector<unsigned char> decodedBlock = bigIntToBytes(messageB2, k);
+    std::vector<unsigned char> message2;
+    if (!oaepDecode(decodedBlock, message2))
+    {
+        std::cout << "Falha no OAEP decode." << std::endl;
+        return 1;
     }
- 
+
+    std::cout << "Texto recuperado:" << std::endl;
+
+    for (auto c : message2)
+    {
+        std::cout << c;
+    }
+    std::cout << std::endl;
+
     return 0;
 }

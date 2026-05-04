@@ -6,8 +6,10 @@
 #include <future>
 #include <thread>
 #include <chrono>
+#include <fstream>
 #include "keygen.h"
 #include "oaep.h"
+#include "base64.h"
 
 size_t modulusByteLength(InfInt n)
 {
@@ -115,25 +117,59 @@ int main(int argc, char *argv[])
 
     InfInt cypher = binpower(messageB1, e, n);
 
-    std::cout << "Texto cifrado: " << cypher << std::endl;
-
-    // descriptografando com OAEP
-    InfInt messageB2 = binpower(cypher, d, n);
-    std::vector<unsigned char> decodedBlock = bigIntToBytes(messageB2, k);
-    std::vector<unsigned char> message2;
-    if (!oaepDecode(decodedBlock, message2))
-    {
-        std::cout << "Falha no OAEP decode." << std::endl;
+    // ==========================================
+    // ASSINATURA (SALVANDO NO ARQUIVO)
+    // ==========================================
+    std::vector<unsigned char> cypherBytes = bigIntToBytes(cypher, k);
+    std::string cypherBase64 = base64_encode(cypherBytes);
+    
+    std::ofstream outSig("assinatura.sig");
+    if (outSig) {
+        outSig << cypherBase64;
+        outSig.close();
+        std::cout << "\n[OK] Assinatura salva no arquivo 'assinatura.sig' (Base64)." << std::endl;
+    } else {
+        std::cout << "Erro ao criar o arquivo de assinatura." << std::endl;
         return 1;
     }
 
-    std::cout << "Texto recuperado:" << std::endl;
+    // ==========================================
+    // VERIFICAÇÃO (LENDO DO ARQUIVO)
+    // ==========================================
+    std::cout << "\n[...] Iniciando verificacao. Lendo 'assinatura.sig'..." << std::endl;
+    
+    std::ifstream inSig("assinatura.sig");
+    if (!inSig) {
+        std::cout << "Erro ao ler o arquivo de assinatura." << std::endl;
+        return 1;
+    }
+    // Lê todo o conteúdo do arquivo txt/sig para uma string
+    std::string assinaturaLidaBase64((std::istreambuf_iterator<char>(inSig)), std::istreambuf_iterator<char>());
+    inSig.close();
 
-    for (auto c : message2)
-    {
+    // agora usa a string que veio do arquivo
+    std::vector<unsigned char> decodedBytes = base64_decode(assinaturaLidaBase64);
+    InfInt cypherRecuperado = bytesToBigInt(decodedBytes);
+
+    // Decifra a assinatura recuperada
+    InfInt messageB2 = binpower(cypherRecuperado, d, n);
+
+    // descriptografando o OAEP
+    std::vector<unsigned char> decodedBlock = bigIntToBytes(messageB2, k);
+    std::vector<unsigned char> message2;
+    
+    if (!oaepDecode(decodedBlock, message2)) {
+        std::cout << "[ERRO] Falha na verificacao. OAEP decode falhou." << std::endl;
+        return 1;
+    }
+
+    std::cout << "\n[SUCESSO] Assinatura verificada! Texto recuperado do arquivo:" << std::endl;
+    std::cout << "---------------------------------------------------" << std::endl;
+    
+    for (auto c : message2) {
         std::cout << c;
     }
-    std::cout << std::endl;
+    std::cout << "---------------------------------------------------" << std::endl;
 
     return 0;
 }

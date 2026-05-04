@@ -16,7 +16,7 @@ Implementação em C++ de:
 No diretório do projeto, execute:
 
 ```bash
-g++ -std=c++17 -O2 RSA.cpp keygen.cpp oaep.cpp -pthread -o rsa
+g++ -std=c++17 -O2 RSA.cpp keygen.cpp oaep.cpp base64.cpp -pthread -o rsa
 ```
 
 ## Uso

@@ -14,6 +14,7 @@ inline uint32_t rotr(uint32_t x, uint32_t n) {
 }
 
 std::array<unsigned char, kSha256DigestSize> sha256(const std::vector<unsigned char>& input) {
+    // Constantes K do SHA-256 (uma para cada round).
     static const uint32_t sha256RoundConstants[64] = {
         0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
         0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -30,16 +31,19 @@ std::array<unsigned char, kSha256DigestSize> sha256(const std::vector<unsigned c
         0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19
     };
 
+    // 1) Padding: adiciona bit '1', zeros e o tamanho original em bits.
     std::vector<unsigned char> msg = input;
-    const uint64_t bitLen = static_cast<uint64_t>(msg.size()) * 8ULL;
+    const uint64_t bitLen = static_cast<uint64_t>(msg.size()) * 8;
     msg.push_back(0x80);
     while ((msg.size() % 64) != 56) msg.push_back(0x00);
     for (int i = 7; i >= 0; --i) {
         msg.push_back(static_cast<unsigned char>((bitLen >> (i * 8)) & 0xFF));
     }
 
+    // 2) Processa a mensagem em blocos de 512 bits (64 bytes).
     for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
         uint32_t messageSchedule[64] = {0};
+        // W[0..15]: leitura direta do bloco atual (big-endian).
         for (int i = 0; i < 16; ++i) {
             const size_t j = chunk + (i * 4);
             messageSchedule[i] = (static_cast<uint32_t>(msg[j]) << 24) |
@@ -47,15 +51,18 @@ std::array<unsigned char, kSha256DigestSize> sha256(const std::vector<unsigned c
                                  (static_cast<uint32_t>(msg[j + 2]) << 8) |
                                  static_cast<uint32_t>(msg[j + 3]);
         }
+        // W[16..63]: expansão da schedule usando as funções sigma.
         for (int i = 16; i < 64; ++i) {
             const uint32_t sigma0 = rotr(messageSchedule[i - 15], 7) ^ rotr(messageSchedule[i - 15], 18) ^ (messageSchedule[i - 15] >> 3);
             const uint32_t sigma1 = rotr(messageSchedule[i - 2], 17) ^ rotr(messageSchedule[i - 2], 19) ^ (messageSchedule[i - 2] >> 10);
             messageSchedule[i] = messageSchedule[i - 16] + sigma0 + messageSchedule[i - 7] + sigma1;
         }
 
+        // 3) Inicializa registradores de trabalho A..H com o estado acumulado.
         uint32_t stateA = hashState[0], stateB = hashState[1], stateC = hashState[2], stateD = hashState[3];
         uint32_t stateE = hashState[4], stateF = hashState[5], stateG = hashState[6], stateH = hashState[7];
 
+        // 4) 64 rounds de compressão.
         for (int i = 0; i < 64; ++i) {
             const uint32_t bigSigma1 = rotr(stateE, 6) ^ rotr(stateE, 11) ^ rotr(stateE, 25);
             const uint32_t choose = (stateE & stateF) ^ ((~stateE) & stateG);
@@ -74,10 +81,12 @@ std::array<unsigned char, kSha256DigestSize> sha256(const std::vector<unsigned c
             stateA = temp1 + temp2;
         }
 
+        // 5) Soma no estado global (feed-forward).
         hashState[0] += stateA; hashState[1] += stateB; hashState[2] += stateC; hashState[3] += stateD;
         hashState[4] += stateE; hashState[5] += stateF; hashState[6] += stateG; hashState[7] += stateH;
     }
 
+    // 6) Serializa estado final em 32 bytes (big-endian).
     std::array<unsigned char, kSha256DigestSize> out{};
     for (int i = 0; i < 8; ++i) {
         out[i * 4] = static_cast<unsigned char>((hashState[i] >> 24) & 0xFF);
@@ -92,6 +101,7 @@ std::vector<unsigned char> mgf1(const std::vector<unsigned char>& seed, size_t m
     std::vector<unsigned char> mask;
     mask.reserve(maskLen);
 
+    // MGF1: concatena SHA-256(seed || counter) ate atingir maskLen bytes.
     uint32_t counter = 0;
     while (mask.size() < maskLen) {
         std::vector<unsigned char> input(seed);
@@ -128,9 +138,11 @@ bool oaepEncode(const std::vector<unsigned char>& message,
     const size_t hLen = kSha256DigestSize;
     if (message.size() > oaepMaxMessageLen(k, hLen)) return false;
 
+    // OAEP passo 1: lHash = Hash(label).
     const std::vector<unsigned char> lBytes = strToBytes(label);
     const auto lHashArr = sha256(lBytes);
 
+    // OAEP passo 2: DB = lHash || PS || 0x01 || M.
     const size_t psLen = k - message.size() - (2 * hLen) - 2;
     std::vector<unsigned char> db;
     db.reserve(k - hLen - 1);
@@ -139,24 +151,28 @@ bool oaepEncode(const std::vector<unsigned char>& message,
     db.push_back(0x01);
     db.insert(db.end(), message.begin(), message.end());
 
+    // OAEP passo 3: seed aleatória (hLen bytes).
     std::vector<unsigned char> seed(hLen);
     std::random_device rd;
     for (size_t i = 0; i < hLen; ++i) {
         seed[i] = static_cast<unsigned char>(rd() & 0xFF);
     }
 
+    // OAEP passo 4: maskedDB = DB XOR MGF1(seed).
     const std::vector<unsigned char> dbMask = mgf1(seed, k - hLen - 1);
     std::vector<unsigned char> maskedDB(db.size());
     for (size_t i = 0; i < db.size(); ++i) {
         maskedDB[i] = db[i] ^ dbMask[i];
     }
 
+    // OAEP passo 5: maskedSeed = seed XOR MGF1(maskedDB).
     const std::vector<unsigned char> seedMask = mgf1(maskedDB, hLen);
     std::vector<unsigned char> maskedSeed(hLen);
     for (size_t i = 0; i < hLen; ++i) {
         maskedSeed[i] = seed[i] ^ seedMask[i];
     }
 
+    // OAEP passo 6: EM = 0x00 || maskedSeed || maskedDB.
     encoded.clear();
     encoded.reserve(k);
     encoded.push_back(0x00);
@@ -174,24 +190,29 @@ bool oaepDecode(const std::vector<unsigned char>& encoded,
     if (k < (2 * hLen + 2)) return false;
     if (encoded[0] != 0x00) return false;
 
+    // OAEP decode passo 1: separa EM em maskedSeed e maskedDB.
     std::vector<unsigned char> maskedSeed(encoded.begin() + 1, encoded.begin() + 1 + hLen);
     std::vector<unsigned char> maskedDB(encoded.begin() + 1 + hLen, encoded.end());
 
+    // OAEP decode passo 2: recupera seed.
     const std::vector<unsigned char> seedMask = mgf1(maskedDB, hLen);
     std::vector<unsigned char> seed(hLen);
     for (size_t i = 0; i < hLen; ++i) {
         seed[i] = maskedSeed[i] ^ seedMask[i];
     }
 
+    // OAEP decode passo 3: recupera DB.
     const std::vector<unsigned char> dbMask = mgf1(seed, k - hLen - 1);
     std::vector<unsigned char> db(maskedDB.size());
     for (size_t i = 0; i < db.size(); ++i) {
         db[i] = maskedDB[i] ^ dbMask[i];
     }
 
+    // OAEP decode passo 4: valida lHash para garantir integridade do label.
     const auto lHashArr = sha256(strToBytes(label));
     if (!std::equal(lHashArr.begin(), lHashArr.end(), db.begin())) return false;
 
+    // OAEP decode passo 5: procura delimitador 0x01 apos o PS e extrai M.
     size_t idx = hLen;
     while (idx < db.size() && db[idx] == 0x00) {
         ++idx;
